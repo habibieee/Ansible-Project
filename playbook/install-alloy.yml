@@ -1,0 +1,80 @@
+- name: Deploy and Configure Grafana Alloy on Database Nodes
+  hosts: mssql_nodes
+  tasks:
+    - name: 1. Update APT Cache and Install Prerequisites
+      apt:
+        name: 
+          - apt-transport-https
+          - software-properties-common
+          - wget
+          - gnupg
+        state: present
+        update_cache: yes
+
+    - name: 2. Create directory for APT keyrings (Idempotent)
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: 3. Download Grafana GPG Key
+      get_url:
+        url: https://apt.grafana.com/gpg.key
+        dest: /etc/apt/keyrings/grafana.key
+        mode: '0644'
+
+    - name: 4. Add Grafana APT Repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/grafana.key] https://apt.grafana.com/ stable main"
+        state: present
+        filename: grafana
+
+    - name: 5. Install Grafana Alloy Engine
+      apt:
+        name: alloy
+        state: latest
+        update_cache: yes
+
+    - name: 6. Deploy Alloy Configuration Template
+      template:
+        src: config.alloy.j2
+        dest: /etc/alloy/config.alloy 
+        owner: alloy
+        group: alloy
+        mode: '0640'
+      notify: Restart Alloy Service
+
+    - name: 7. Flush handlers (Paksa eksekusi Restart Alloy sekarang juga)
+      meta: flush_handlers
+
+    - name: 8. Pause sejenak (Beri waktu Alloy untuk booting up)
+      pause:
+        seconds: 3
+
+    - name: 9. Check status systemctl Alloy
+      command: systemctl is-active alloy
+      register: alloy_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: 10. Tampilkan status systemctl Alloy
+      debug:
+        msg: "Status service Alloy saat ini: {{ alloy_status.stdout | upper }}"
+
+    - name: 11. Ambil 15 baris terakhir dari log Journald Alloy
+      command: journalctl -u alloy -n 15 --no-pager
+      register: alloy_journal
+      changed_when: false
+
+    - name: 12. Tampilkan log Journald Alloy
+      debug:
+        var: alloy_journal.stdout_lines
+
+  # Handlers hanya dipicu jika ada perubahan yang dilaporkan oleh task di atas
+  handlers:
+    - name: Restart Alloy Service
+      systemd:
+        name: alloy
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
