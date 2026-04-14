@@ -1,5 +1,5 @@
 - name: Deploy and Configure Grafana Alloy on Database Nodes
-  hosts: mssql_nodes
+  hosts: mssql_servers
   tasks:
     - name: 1. Update APT Cache and Install Prerequisites
       apt:
