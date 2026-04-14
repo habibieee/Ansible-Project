@@ -1,0 +1,44 @@
+// --- 1. Kumpulkan Metrik Sistem Operasi ---
+prometheus.exporter.unix "os_metrics" { }
+
+prometheus.scrape "scrape_os_metrics" {
+  targets    = prometheus.exporter.unix.os_metrics.targets
+  forward_to = [prometheus.remote_write.central_prom.receiver]
+}
+
+// --- 2. Kumpulkan Metrik MSSQL ---
+prometheus.exporter.mssql "local_db" {
+  // Ansible akan menyuntikkan db_user dan db_pass dari inventory.ini ke sini
+  connection_string = "sqlserver://{{ db_user }}:{{ db_pass }}@localhost:1433"
+}
+
+prometheus.scrape "scrape_mssql_metrics" {
+  targets    = prometheus.exporter.mssql.local_db.targets
+  forward_to = [prometheus.remote_write.central_prom.receiver]
+}
+
+// --- 3. Kumpulkan Log Error M_SSQL ---
+local.file_match "mssql_error_logs" {
+  path_targets = [
+    {"__path__" = "/var/opt/mssql/log/errorlog*", "job" = "mssql_errorlog"},
+  ]
+}
+
+loki.source.file "read_mssql_logs" {
+  targets    = local.file_match.mssql_error_logs.targets
+  forward_to = [loki.write.central_loki.receiver]
+}
+
+prometheus.remote_write "central_prom" {
+  endpoint {
+    // Ansible akan menyuntikkan URL Prometheus dari inventory.ini ke sini
+    url = "{{ prometheus_url }}"
+  }
+}
+
+loki.write "central_loki" {
+  endpoint {
+    // Ansible akan menyuntikkan URL Loki dari inventory.ini ke sini
+    url = "{{ loki_url }}"
+  }
+}
