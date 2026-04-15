@@ -1,5 +1,5 @@
 - name: Deploy and Configure Grafana Alloy on Database Nodes
-  hosts: mssql_servers
+  hosts: mssql_nodes
   tasks:
     - name: 1. Update APT Cache and Install Prerequisites
       apt:
@@ -37,7 +37,7 @@
 
     - name: 6. Deploy Alloy Configuration Template
       template:
-        src: ../alloy-config/config.alloy.j2
+        src: config.alloy.j2
         dest: /etc/alloy/config.alloy 
         owner: alloy
         group: alloy
