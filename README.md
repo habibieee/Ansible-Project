@@ -102,39 +102,46 @@ ansible-galaxy collection install community.general
 
 ### 1. Update `inventory.ini`
 
-Edit file [inventory.ini](inventory.ini) with target MSSQL servers dan monitoring infrastructure:
+Edit file [inventory.ini](inventory.ini) dengan target MSSQL servers dan monitoring infrastructure:
 
 ```ini
-[mssql_nodes]
-172.16.11.200 ansible_user=student
-172.16.11.201 ansible_user=student
-172.16.11.202 ansible_user=student
+[mssql_servers]
+172.16.11.135
+172.16.11.136
+172.16.11.137
 
-[mssql_nodes:vars]
-# MSSQL Monitoring User Credentials
-mssql_monitor_user=GrafanaMonitor
-mssql_monitor_pass=admin123
+[mssql_servers:vars] 
+ansible_user=p05idon
+ansible_become=yes
+ansible_ssh_private_key_file=~/.ssh/id_rsa
 
-# Central Monitoring Endpoints
+# Variabel Konfigurasi Alloy
+db_user=GrafanaMonitor
+db_pass=admin123
 prometheus_url=http://172.16.11.200:9090/api/v1/write
 loki_url=http://172.16.11.200:3100/loki/api/v1/push
-db_user=sa
-db_pass=YourSAPassword123
 ```
 
 **Variabel Penting:**
-- `mssql_monitor_user` - User untuk connect ke MSSQL (gunakan least privilege)
-- `db_user` / `db_pass` - SA credentials untuk monitoring
+- `ansible_user` - Username untuk SSH ke target nodes (harus punya sudo privileges)
+- `ansible_become` - Enable sudo privilege escalation
+- `ansible_ssh_private_key_file` - Path ke private SSH key
+- `db_user` / `db_pass` - Credentials untuk monitoring MSSQL
 - `prometheus_url` - Prometheus remote write endpoint
 - `loki_url` - Loki API endpoint
 
 ### 2. Konfigurasi SSH Access
 
-Pastikan SSH keys sudah setup:
+Pastikan SSH keys sudah setup dengan benar untuk user `p05idon`:
 
 ```bash
 # Copy SSH public key ke target nodes
-ssh-copy-id -i ~/.ssh/id_rsa.pub student@172.16.11.200
+ssh-copy-id -i ~/.ssh/id_rsa.pub p05idon@172.16.11.135
+ssh-copy-id -i ~/.ssh/id_rsa.pub p05idon@172.16.11.136
+ssh-copy-id -i ~/.ssh/id_rsa.pub p05idon@172.16.11.137
+
+# Test SSH access
+ssh p05idon@172.16.11.135 'sudo whoami'
 ```
 
 ### 3. Test Connectivity
@@ -145,10 +152,23 @@ ansible all -i inventory.ini -m ping
 
 Expected output:
 ```
-172.16.11.200 | SUCCESS => {
+172.16.11.135 | SUCCESS => {
     "changed": false,
     "ping": "pong"
 }
+172.16.11.136 | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+172.16.11.137 | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Verify sudo access:
+```bash
+ansible all -i inventory.ini -m command -a "whoami"
 ```
 
 ## 🎯 Penggunaan
@@ -159,16 +179,19 @@ Expected output:
 # Run playbook dengan verbosity
 ansible-playbook -i inventory.ini playbook/install-alloy.yml -v
 
-# Run dengan extra variables
+# Run dengan extra variables (override inventory)
 ansible-playbook -i inventory.ini playbook/install-alloy.yml \
   -e "prometheus_url=http://new-prometheus:9090/api/v1/write"
 
 # Run hanya pada host tertentu
 ansible-playbook -i inventory.ini playbook/install-alloy.yml \
-  --limit 172.16.11.200
+  --limit 172.16.11.135
+
+# Run dengan debugging (verbose + show all variables)
+ansible-playbook -i inventory.ini playbook/install-alloy.yml -vvv
 ```
 
-### Tasks yang Dijalankan
+### Tasks yang Dijalankan10
 
 Playbook terdiri dari 12 tasks:
 
@@ -233,39 +256,53 @@ Playbook terdiri dari 12 tasks:
 ## 🔍 Troubleshooting
 
 ### Issue: "Failed to connect to Alloy service"
-
-```bash
-# SSH ke target node
-ssh student@172.16.11.200
+p05idon@172.16.11.135
 
 # Check service status
 sudo systemctl status alloy
+
+# View logs (last 50 lines)
+sudo journalctl -u alloy -n 50
+
+# View logs in real-time
+sudo journalctl -u alloy -f
 
 # View logs
 sudo journalctl -u alloy -n 50
 
 # Restart service manually
-sudo systemctl restart alloy
-```
+suSSH ke target node
+ssh p05idon@172.16.11.135
 
-### Issue: "Connection refused to MSSQL"
+# Verify MSSQL berjalan
+sudo systemctl status mssql-server
 
+# Test MSSQL connection
+/opt/mssql-tools/bin/sqlcmd -S localhost -U GrafanaMonitor -P 'admin123'
+
+# If using SA account
+/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '<sa_
 ```bash
 # Verify MSSQL berjalan
 systemctl status mssql-server
 
 # Test connection string
 /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '<password>'
-```
+```p05idon@172.16.11.135
 
-### Issue: Metrics tidak muncul di Prometheus
+# Stop service
+sudo systemctl stop alloy
 
-1. Verifikasi Alloy config: `cat /etc/alloy/config.alloy`
-2. Check Prometheus remote write endpoint: `curl -v http://prometheus:9090/api/v1/write`
-3. Inspect Alloy logs: `journalctl -u alloy -f`
+# Backup current config
+sudo cp /etc/alloy/config.alloy /etc/alloy/config.alloy.backup
 
-### Reset Configuration (jika diperlukan)
+# Remove config untuk reset
+sudo rm /etc/alloy/config.alloy
 
+# Start service
+sudo systemctl start alloy
+
+# Re-run playbook dari control node
 ```bash
 # SSH ke target node
 ssh student@172.16.11.200
